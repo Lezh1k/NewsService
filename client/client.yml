@@ -1,4 +1,7 @@
 ---
+server_settings:
+  echo_addr: ":5000"
+
 nats_settings:
   client_id: "client"
   cluster_id: "test-cluster"
@@ -9,4 +12,4 @@ nats_settings:
   max_pub_ack_in_flight: 100
   ping_interval: 5
   ping_max_out: 3
-  nats_url: "nats://nats:4222"
+  nats_url: "nats://localhost:4222"

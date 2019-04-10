@@ -14,6 +14,9 @@ func TestSuccesGetConfig(t *testing.T) {
 
 	fileContentStr := `
 ---
+server_settings:
+  echo_addr: ":5000"
+
 nats_settings:
   client_id: "client"
   cluster_id: "test-cluster"
@@ -37,6 +40,7 @@ nats_settings:
 	require.NoError(t, err)
 	assert.Equal(t, "nats://nats:4222", c.NATSSettings.NATSURL)
 	assert.Equal(t, "client", c.NATSSettings.ClientID)
+	assert.Equal(t, ":5000", c.ServerSettings.EchoAddress)
 }
 
 func TestSuccesGetConfigWithFileName(t *testing.T) {

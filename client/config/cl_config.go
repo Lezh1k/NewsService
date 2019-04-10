@@ -3,11 +3,17 @@ package clconfig
 import (
 	"strings"
 
+	natssettings "github.com/Lezh1k/NewsService/commons/structures"
 	"github.com/spf13/viper"
 )
 
+type ServerSettings struct {
+	EchoAddress string `json:"echo_addr" mapstructure:"echo_addr"`
+}
+
 type ClientConfig struct {
-	NATSSettings NATSSettings `json:"nats_settings" mapstructure:"nats_settings"`
+	ServerSettings ServerSettings            `json:"server_settings" mapstructure:"server_settings"`
+	NATSSettings   natssettings.NATSSettings `json:"nats_settings" mapstructure:"nats_settings"`
 }
 
 // Get parses ClientConfig from env vars
