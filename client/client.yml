@@ -1,0 +1,12 @@
+---
+nats_settings:
+  client_id: "client"
+  cluster_id: "test-cluster"
+  connect_timeout: "2s"
+  ack_timeout: "30s"
+  default_ack_prefix: "_STAN.acks"
+  discover_prefix: "_STAN.discover"
+  max_pub_ack_in_flight: 100
+  ping_interval: 5
+  ping_max_out: 3
+  nats_url: "nats://nats:4222"

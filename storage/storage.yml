@@ -1,0 +1,4 @@
+---
+db_settings:
+  #  connection_str: "root:root@tcp(db:3306)/news?parseTime=true
+  connection_str: "root:root@tcp(localhost:3308)/news?parseTime=true

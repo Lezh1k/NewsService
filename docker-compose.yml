@@ -1,0 +1,33 @@
+version: '3'
+services:
+  
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=news
+    ports:
+      - "3308:3306"
+    networks:
+      - news_service
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -u root -proot -e 'SHOW DATABASES' > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  stan: #streaming nats
+    image: nats-streaming:latest
+    restart: always
+    container_name: stan
+    networks:
+      - news_service
+    ports:
+      - "4222:4222"
+    depends_on:
+      - db
+
+networks:
+  news_service:

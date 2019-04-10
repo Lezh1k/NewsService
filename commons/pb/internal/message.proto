@@ -1,0 +1,15 @@
+syntax = "proto3";
+package message;
+
+import "google/protobuf/timestamp.proto";
+
+enum RegisterItemErrorCode {
+  SUCCESS = 0; // новость успешно добавлена
+  INCORRECT_INPUT = 1; // ошибка (неверный формат даты)
+  SERVER_ERROR = 2; // ошибки бд, nats и т.п.
+} 
+
+message NewsItem {
+  string header = 1;
+  google.protobuf.Timestamp date = 2;
+}
