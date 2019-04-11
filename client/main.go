@@ -195,6 +195,7 @@ func main() {
 
 	echoServerStarted := false
 	for i := 0; i < startEchoMaxAttemptsCount && !echoServerStarted; i++ {
+		time.Sleep(time.Second * 1)
 		err = startServer(conf)
 		echoServerStarted = err == nil
 		fmt.Printf("Starting server. Attempt : %d, res : %v", i, err)

@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/golang/protobuf/ptypes"
 
 	"github.com/Lezh1k/NewsService/commons"
 	msg "github.com/Lezh1k/NewsService/commons/pb"
 	"github.com/Lezh1k/NewsService/storage/config"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gogo/protobuf/proto"
+	"github.com/jmoiron/sqlx"
 	stan "github.com/nats-io/go-nats-streaming"
 	"github.com/sirupsen/logrus"
 )
 
-func newRegisterSubscribe(natsClient stan.Conn) error {
-	sub, err := natsClient.Subscribe("register_req", func(m *stan.Msg) {
+func newRegisterSubscribe(natsClient stan.Conn, conn *sqlx.DB) (stan.Subscription, error) {
+	return natsClient.Subscribe("register_req", func(m *stan.Msg) {
 		nrrq := new(msg.NewsRegisterRequestContainer)
 		err := proto.Unmarshal(m.Data, nrrq)
 		if err != nil {
@@ -28,8 +31,21 @@ func newRegisterSubscribe(natsClient stan.Conn) error {
 
 		nrrs := new(msg.NewsRegisterResponseContainer)
 		nrrs.Guid = nrrq.Guid
-		nrrs.Id = "ok" // todo get from db
 
+		t, err := ptypes.Timestamp(nrrq.Item.Date)
+		if err != nil {
+			logrus.Errorf("Failed to unmarshal nrrq.Item.Date. err : %v", err)
+			return
+		}
+
+		r, err := conn.Exec("insert into news (registered, header) values (?, ?)", t, nrrq.Item.Header)
+		liid := int64(-1)
+		if err != nil {
+			logrus.Errorf("Failed to exec sql request. Err : %v", err)
+		} else {
+			liid, err = r.LastInsertId()
+		}
+		nrrs.Id = fmt.Sprintf("%d", liid)
 		nrrsData, err := proto.Marshal(nrrs)
 		if err != nil {
 			logrus.Errorf("Couldn't marshal response. Err : %v", err)
@@ -37,18 +53,17 @@ func newRegisterSubscribe(natsClient stan.Conn) error {
 		}
 		natsClient.Publish("register_resp", nrrsData)
 	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err := sub.Unsubscribe()
-		logrus.Infof("Unsubscribe err : %v", err)
-	}()
-	return nil
 }
 
-func newInfoSubscribe(natsClient stan.Conn) error {
-	sub, err := natsClient.Subscribe("info_req", func(m *stan.Msg) {
+//NewsDbItem represents db table News.
+type NewsDbItem struct {
+	ID     int       `db:"id"`
+	Date   time.Time `db:"registered"`
+	Header string    `db:"header"`
+}
+
+func newInfoSubscribe(natsClient stan.Conn, conn *sqlx.DB) (stan.Subscription, error) {
+	return natsClient.Subscribe("info_request", func(m *stan.Msg) {
 		nirq := new(msg.NewsInfoRequestContainer)
 		err := proto.Unmarshal(m.Data, nirq)
 		if err != nil {
@@ -59,36 +74,54 @@ func newInfoSubscribe(natsClient stan.Conn) error {
 
 		nirs := new(msg.NewsInfoResponseContainer)
 		nirs.Guid = nirq.Guid
-		//todo get item from bd
-		nirs.Item = &msg.NewsItem{Header: "stub", Date: ptypes.TimestampNow()}
 
+		var ni NewsDbItem
+		err = conn.Get(&ni, "select * from news where id=?", nirq.Id)
+		if err != nil {
+			logrus.Errorf("Couldn't get item with id=%v. Err : %v", nirq.Id, err)
+			return
+		}
+
+		nirs.Item = &msg.NewsItem{Header: ni.Header, Date: ptypes.TimestampNow()}
 		nirsData, err := proto.Marshal(nirs)
 		if err != nil {
 			logrus.Errorf("Couldn't marshal response. Err : %v", err)
 			return
 		}
-		natsClient.Publish("info_resp", nirsData)
+		natsClient.Publish("info_response", nirsData)
 	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err := sub.Unsubscribe()
-		logrus.Infof("Unsubscribe err : %v", err)
-	}()
-	return nil
+
 }
 
 func startServer(cfg stconfig.StorageConfig) error {
+	conn, err := sqlx.Open("mysql", cfg.DBSettings.ConnectionString)
+	if err != nil {
+		return err
+	}
+
 	natsClient, err := commons.ConnectToStan(cfg.NATSSettings)
 	if err != nil {
 		return err
 	}
 	defer natsClient.Close()
-	err = newRegisterSubscribe(natsClient)
+
+	regSub, err := newRegisterSubscribe(natsClient, conn)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		err := regSub.Unsubscribe()
+		logrus.Infof("Register unsubscribe err : %v", err)
+	}()
+
+	infSub, err := newInfoSubscribe(natsClient, conn)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := infSub.Unsubscribe()
+		logrus.Infof("Info unsubscribe err : %v", err)
+	}()
 
 	//todo remove this and add normal service %)
 	signalChan := make(chan os.Signal, 1)
@@ -119,6 +152,7 @@ func main() {
 
 	echoServerStarted := false
 	for i := 0; i < startEchoMaxAttemptsCount && !echoServerStarted; i++ {
+		time.Sleep(time.Second * 1)
 		err = startServer(conf)
 		echoServerStarted = err == nil
 		fmt.Printf("Starting server. Attempt : %d, res : %v", i, err)

@@ -31,7 +31,7 @@ message NewsRegisterResponseContainer {
 // запрос на инфо по новости
 message NewsInfoRequestContainer {
   string guid = 1;
-  string id = 2;
+  int64 id = 2;
 }
 
 // ответ на инфо о новости
