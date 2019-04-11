@@ -1,7 +1,7 @@
 ---
 db_settings:
   #  connection_str: "root:root@tcp(db:3306)/news?parseTime=true
-  connection_str: "root:root@tcp(localhost:3308)/news?parseTime=true"
+  connection_str: "root:root@tcp(db:3306)/news?parseTime=true"
 
 nats_settings:
   client_id: "storage"
@@ -13,4 +13,4 @@ nats_settings:
   max_pub_ack_in_flight: 100
   ping_interval: 5
   ping_max_out: 3
-  nats_url: "nats://localhost:4222"
+  nats_url: "nats://stan:4222"

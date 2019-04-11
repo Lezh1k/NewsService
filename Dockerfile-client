@@ -1,0 +1,7 @@
+from golang:1.12
+workdir /go/src/github.com/Lezh1k/NewsService
+copy . .
+workdir /go/src/github.com/Lezh1k/NewsService/client
+run GOOS=linux GOARCH=amd64 go build -v -o client main.go
+run ["cp", "client", "/"]
+

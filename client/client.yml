@@ -12,4 +12,4 @@ nats_settings:
   max_pub_ack_in_flight: 100
   ping_interval: 5
   ping_max_out: 3
-  nats_url: "nats://localhost:4222"
+  nats_url: "nats://stan:4222"  

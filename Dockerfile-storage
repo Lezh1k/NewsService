@@ -1,0 +1,6 @@
+from golang:1.12
+workdir /go/src/github.com/Lezh1k/NewsService
+copy . .
+workdir /go/src/github.com/Lezh1k/NewsService/storage
+run go build -v -o storage main.go
+run ["cp", "storage", "/"]

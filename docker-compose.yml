@@ -29,5 +29,25 @@ services:
     depends_on:
       - db
 
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile-client
+    networks:
+      - news_service
+    ports:
+      - "5000:5000"
+    restart: always
+    command: "/client"
+
+  storage:
+    build:
+      context: .
+      dockerfile: Dockerfile-storage
+    networks:
+      - news_service
+    restart: always
+    command: "/storage"
+
 networks:
   news_service:
