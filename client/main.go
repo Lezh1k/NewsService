@@ -8,14 +8,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/google/uuid"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 
 	"github.com/Lezh1k/NewsService/client/config"
+	"github.com/Lezh1k/NewsService/commons"
+	msg "github.com/Lezh1k/NewsService/commons/pb"
+	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 
-	nats "github.com/nats-io/go-nats"
 	stan "github.com/nats-io/go-nats-streaming"
 )
 
@@ -24,87 +30,138 @@ type registerRequest struct {
 	Header  string `json:"header"`
 }
 
-func disconnectHandler(conn *nats.Conn) {
-	logrus.WithFields(
-		logrus.Fields{
-			"isReconnecting": conn.IsReconnecting(),
-			"isConnected":    conn.IsConnected(),
-			"lastError":      conn.LastError(),
-		}).Warn("disconnected from nats server")
-}
-
-func reconnectHandler(conn *nats.Conn) {
-	logrus.WithFields(
-		logrus.Fields{
-			"isReconnecting": conn.IsReconnecting(),
-			"isConnected":    conn.IsConnected(),
-			"lastError":      conn.LastError(),
-		}).Warn("reconnected to nats server")
-}
-
-func closedHandler(conn *nats.Conn) {
-	logrus.WithFields(
-		logrus.Fields{
-			"isReconnecting": conn.IsReconnecting(),
-			"isConnected":    conn.IsConnected(),
-			"lastError":      conn.LastError(),
-		}).Warn("connection closed to nats server")
-}
-
-// errorHandler is used to process asynchronous errors encountered
-// while processing inbound messages.
-func errorHandler(conn *nats.Conn, sub *nats.Subscription, err error) {
-	logrus.WithFields(
-		logrus.Fields{
-			"isConnected": conn.IsConnected(),
-			"subject":     sub.Subject,
-			"queue":       sub.Queue,
-			"error":       err.Error(),
-		}).Error("encountered error")
-}
-
-func connectToStan(cfg clconfig.ClientConfig) (stan.Conn, error) {
-	var natsClient stan.Conn
-	natsConn, err := nats.Connect(
-		cfg.NATSSettings.NATSURL,
-		nats.MaxReconnects(20),
-		nats.Timeout(time.Second*2),
-	)
-
-	if err != nil {
-		return natsClient, err
-	}
-	natsConn.SetReconnectHandler(reconnectHandler)
-	natsConn.SetDisconnectHandler(disconnectHandler)
-	natsConn.SetClosedHandler(closedHandler)
-	natsConn.SetErrorHandler(errorHandler)
-
-	//store nats connection
-	natsClient, err = stan.Connect(
-		cfg.NATSSettings.ClusterID,
-		cfg.NATSSettings.ClientID,
-		stan.NatsURL(cfg.NATSSettings.NATSURL),
-		stan.ConnectWait(cfg.NATSSettings.ConnectTimeout),
-		stan.PubAckWait(cfg.NATSSettings.AckTimeout),
-		stan.MaxPubAcksInflight(cfg.NATSSettings.MaxPubAcksInflight),
-		stan.NatsConn(natsConn),
-	)
-
-	if err != nil {
-		logrus.Error("unable to connect to nats streaming server", err)
-		return natsClient, err
+func handleNewsInfoRequest(natsClient stan.Conn, c echo.Context) error {
+	id := c.QueryParam("id")
+	if strings.TrimSpace(id) == "" {
+		return c.String(http.StatusBadRequest, "Empty ID in URL is not allowed")
 	}
 
-	logrus.WithFields(logrus.Fields{"URL": cfg.NATSSettings.NATSURL}).Info("Connected to NATS")
-	return natsClient, nil
+	nirqc := new(msg.NewsInfoRequestContainer)
+	nirqc.Guid = uuid.New().String()
+	nirqc.Id = id
+	nirqcData, err := proto.Marshal(nirqc)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Marshaling error")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	hdr := ""
+
+	sub, err := natsClient.Subscribe("info_response", func(m *stan.Msg) {
+		nirsc := new(msg.NewsInfoResponseContainer)
+		err := proto.Unmarshal(m.Data, nirsc)
+		if err != nil {
+			logrus.Errorf("Unmarshalling error : %v", err)
+			return
+		}
+		if nirsc.Guid != nirqc.Guid {
+			return //just ignore it
+		}
+		hdr = nirsc.Item.Header
+		wg.Done()
+	})
+
+	if err != nil {
+		logrus.Errorf("Couldn't subscribe request. Err : %v", err)
+		return c.String(http.StatusInternalServerError, "Subscribtion failed")
+	}
+	defer func() {
+		err := sub.Unsubscribe()
+		logrus.Infof("Unsubscribe err : %v", err)
+	}()
+
+	err = natsClient.Publish("info_request", nirqcData)
+	if err != nil {
+		logrus.Errorf("Publish error : %v", err)
+		return c.String(http.StatusInternalServerError, "Couldn't publish message to nats")
+	}
+
+	wg.Wait()
+
+	//todo check that hdr != ""
+	return c.String(http.StatusOK, hdr)
+}
+
+func handleNewsRegisterRequest(natsClient stan.Conn, c echo.Context) error {
+	regReq := new(registerRequest)
+	if err := c.Bind(regReq); err != nil {
+		fmt.Printf("Invalid request JSON received. Err : %v", err)
+		return c.String(http.StatusBadRequest, "Invalid JSON")
+	}
+
+	var registerDate *timestamp.Timestamp
+	if strings.TrimSpace(regReq.Created) == "" {
+		registerDate = ptypes.TimestampNow()
+	} else {
+		const layout = "2006-01-02T15:04:05.000Z"
+		t, err := time.Parse(layout, regReq.Created)
+		if err != nil {
+			return c.String(http.StatusBadRequest, "Invalid time int request. Follow this layout : "+layout)
+		}
+		registerDate, err = ptypes.TimestampProto(t)
+		if err != nil {
+			logrus.Errorf("Couldn't convert time to timestamp. Err : %v", err)
+			return c.String(http.StatusInternalServerError, "Something wrong with timestamp")
+		}
+	}
+
+	ni := new(msg.NewsItem)
+	ni.Header = regReq.Header
+	ni.Date = registerDate
+
+	nrrq := new(msg.NewsRegisterRequestContainer)
+	nrrq.Guid = uuid.New().String()
+	nrrq.Item = ni
+
+	publishData, err := proto.Marshal(nrrq)
+
+	if err != nil {
+		logrus.Errorf("Couldn't marshal NewsItem. Err : %v", err)
+		return c.String(http.StatusInternalServerError, "Couldn't marshal NewsItem")
+	}
+	id := ""
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	sub, err := natsClient.Subscribe("register_resp", func(m *stan.Msg) {
+		nrrs := new(msg.NewsRegisterResponseContainer)
+		err := proto.Unmarshal(m.Data, nrrs)
+		if err != nil {
+			logrus.Errorf("Couldn't unmarshal register response. Err : %v", err)
+			return
+		}
+		if nrrs.Guid != nrrq.Guid { //just ignore this message.
+			return
+		}
+		id = nrrs.Id
+		wg.Done()
+	})
+
+	if err != nil {
+		logrus.Errorf("Couldn't subscribe. Err : %v", err)
+		return c.String(http.StatusInternalServerError, "Subscribtion failed")
+	}
+	defer sub.Unsubscribe()
+
+	err = natsClient.Publish("register_req", []byte(publishData))
+	if err != nil {
+		logrus.Errorf("Publish error : %v", err)
+		return c.String(http.StatusInternalServerError, "Couldn't publish message to nats")
+	}
+	wg.Wait()
+	//todo check that id != ""
+	return c.String(http.StatusOK, id)
 }
 
 func startServer(cfg clconfig.ClientConfig) error {
 
-	natsClient, err := connectToStan(cfg)
+	natsClient, err := commons.ConnectToStan(cfg.NATSSettings)
 	if err != nil {
 		return err
 	}
+	defer natsClient.Close()
 
 	e := echo.New()
 	// Middleware
@@ -112,38 +169,12 @@ func startServer(cfg clconfig.ClientConfig) error {
 	e.Use(middleware.Recover())
 
 	// Routes
-	e.GET("/request_news_item", func(c echo.Context) error {
-		newItemID := c.QueryParam("id")
-		if strings.TrimSpace(newItemID) == "" {
-			return c.String(http.StatusBadRequest, "Empty ID in URL is not allowed")
-		}
-
-		err := natsClient.Publish("request", []byte(newItemID))
-		if err != nil {
-			logrus.Errorf("Publish error : %v", err)
-			return c.String(http.StatusInternalServerError, "Couldn't publish message to nats")
-		}
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		sub, _ := natsClient.Subscribe("request", func(m *stan.Msg) {
-			logrus.Infof("Received a message: %s\n", string(m.Data))
-			wg.Done()
-		})
-		wg.Wait()
-		// Unsubscribe
-		sub.Unsubscribe()
-
-		return c.String(http.StatusOK, newItemID)
+	e.GET("/news/request", func(c echo.Context) error {
+		return handleNewsInfoRequest(natsClient, c)
 	})
 
-	e.POST("/register_news_item", func(c echo.Context) error {
-		regReq := new(registerRequest)
-		if err := c.Bind(regReq); err != nil {
-			fmt.Printf("Invalid request JSON received. Err : %v", err)
-			return c.String(http.StatusBadRequest, "Invalid JSON")
-		}
-		return c.String(http.StatusOK, fmt.Sprintf("%s\n%s\n", regReq.Created, regReq.Header))
+	e.POST("/news/register", func(c echo.Context) error {
+		return handleNewsRegisterRequest(natsClient, c)
 	})
 
 	// Start server

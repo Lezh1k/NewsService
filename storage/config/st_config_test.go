@@ -17,6 +17,18 @@ func TestSuccesGetConfig(t *testing.T) {
 db_settings:
   #  connection_str: "root:root@tcp(db:3306)/news?parseTime=true"
   connection_str: "root:root@tcp(localhost:3308)/news?parseTime=true"
+
+nats_settings:
+  client_id: "client"
+  cluster_id: "test-cluster"
+  connect_timeout: "2s"
+  ack_timeout: "30s"
+  default_ack_prefix: "_STAN.acks"
+  discover_prefix: "_STAN.discover"
+  max_pub_ack_in_flight: 100
+  ping_interval: 5
+  ping_max_out: 3
+  nats_url: "nats://nats:4222"
 `
 	dir, err := ioutil.TempDir("", "storage_config_test")
 	require.NoError(t, err)
@@ -28,6 +40,7 @@ db_settings:
 	c, err := Get("", dir)
 	require.NoError(t, err)
 	assert.Equal(t, "root:root@tcp(localhost:3308)/news?parseTime=true", c.DBSettings.ConnectionString)
+	assert.Equal(t, "nats://nats:4222", c.NATSSettings.NATSURL)
 }
 
 func TestSuccesGetConfigWithFileName(t *testing.T) {

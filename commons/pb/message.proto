@@ -1,0 +1,41 @@
+syntax = "proto3";
+package message;
+
+import "google/protobuf/timestamp.proto";
+
+enum RegisterItemErrorCode {
+  SUCCESS = 0; // новость успешно добавлена
+  INCORRECT_INPUT = 1; // ошибка (неверный формат даты)
+  SERVER_ERROR = 2; // ошибки бд, nats и т.п.
+} 
+
+
+message NewsItem {
+  string header = 1;
+  google.protobuf.Timestamp date = 2;
+}
+
+// оборачиваем запросы/ответы в контейнеры, чтоб можно было игнорировать не относящиеся к конкретному запросу ответы в NATS
+// запрос Register
+message NewsRegisterRequestContainer {
+  string guid = 1;
+  NewsItem item = 2;
+}
+
+// ответ на запрос Register
+message NewsRegisterResponseContainer {
+  string guid = 1;
+  string id = 2;
+}
+
+// запрос на инфо по новости
+message NewsInfoRequestContainer {
+  string guid = 1;
+  string id = 2;
+}
+
+// ответ на инфо о новости
+message NewsInfoResponseContainer {
+  string guid = 1;
+  NewsItem item = 2;
+}

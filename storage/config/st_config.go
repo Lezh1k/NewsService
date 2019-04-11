@@ -3,7 +3,7 @@ package stconfig
 import (
 	"strings"
 
-	natssettings "github.com/Lezh1k/NewsService/commons/structures"
+	natssettings "github.com/Lezh1k/NewsService/commons"
 	"github.com/spf13/viper"
 )
 
@@ -12,6 +12,7 @@ type DBSettings struct {
 	ConnectionString string `json:"connection_str" mapstructure:"connection_str"`
 }
 
+//StorageConfig ...
 type StorageConfig struct {
 	NATSSettings natssettings.NATSSettings `json:"nats_settings" mapstructure:"nats_settings"`
 	DBSettings   DBSettings                `json:"db_settings" mapstructure:"db_settings"`

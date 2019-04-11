@@ -3,7 +3,7 @@ package clconfig
 import (
 	"strings"
 
-	natssettings "github.com/Lezh1k/NewsService/commons/structures"
+	natssettings "github.com/Lezh1k/NewsService/commons"
 	"github.com/spf13/viper"
 )
 
